@@ -33,7 +33,8 @@ input[type=text],input[type=password],select,textarea{width:100%;border:1px soli
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #2563a822}
 textarea{resize:vertical;min-height:110px;line-height:1.45}
 .row{display:flex;gap:8px}
-.row input{flex:1;min-width:0}
+.row input,.row select{flex:1;min-width:0}
+.sub{border-left:3px solid var(--accent-soft);padding-left:12px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:10px 0 0;cursor:pointer}
 .check input{margin-top:3px;flex:none}
 .hint{font-size:13px;color:var(--muted);margin:8px 0 0}
@@ -202,8 +203,25 @@ footer.foot{text-align:center;font-size:12px;color:var(--muted);padding:0 16px 2
     </div>
     <div id="voiceBox">
       <div class="field"><span>Voix du recruteur</span>
+        <div class="seg" data-name="tts"><button type="button" data-v="basic">Basique (gratuite)</button><button type="button" data-v="google">Google</button><button type="button" data-v="eleven">ElevenLabs</button></div>
+      </div>
+      <div id="ttsBasic" class="field sub">
         <div class="row"><select id="voice"></select><button id="btnTestVoice" class="btn ghost" type="button">Tester</button></div>
         <p id="voiceWarn" class="hint" hidden>Aucune voix française trouvée sur cet appareil : la voix par défaut sera utilisée.</p>
+        <p class="hint">Voix intégrées à l'appareil. Sur ordinateur, ouvre la page dans Microsoft Edge : ses voix « Natural » sont bien plus réalistes.</p>
+      </div>
+      <div id="ttsGoogle" class="field sub" hidden>
+        <div class="row"><input id="googleKey" type="password" placeholder="Clé API Google Cloud (AIza…)" autocomplete="off" spellcheck="false" autocapitalize="off"><button id="btnGLoad" class="btn ghost" type="button">Charger</button></div>
+        <div class="row" style="margin-top:8px"><select id="gVoice"></select><button id="btnGTest" class="btn ghost" type="button">Tester</button></div>
+        <p id="gStatus" class="hint"></p>
+        <p class="hint">Voix Chirp 3 HD, très naturelles. Dans Google Cloud : active l'API « Cloud Text-to-Speech » (compte de facturation requis, environ 1 million de caractères gratuits par mois pour ces voix), puis Identifiants → Créer une clé API. Restreins la clé au site <b class="host"></b> et à cette API.</p>
+      </div>
+      <div id="ttsEleven" class="field sub" hidden>
+        <div class="row"><input id="elevenKey" type="password" placeholder="Clé API ElevenLabs (sk_…)" autocomplete="off" spellcheck="false" autocapitalize="off"><button id="btnELoad" class="btn ghost" type="button">Charger</button></div>
+        <div class="row" style="margin-top:8px"><select id="eVoice"></select><button id="btnETest" class="btn ghost" type="button">Tester</button></div>
+        <div style="margin-top:8px"><select id="eModel"><option value="eleven_flash_v2_5">Modèle Flash v2.5 : rapide, moitié prix</option><option value="eleven_multilingual_v2">Modèle Multilingual v2 : qualité maximale</option></select></div>
+        <p id="eStatus" class="hint"></p>
+        <p class="hint">Rendu le plus bluffant. Clé à créer dans ton compte ElevenLabs (section API Keys), avec les droits Text to Speech et lecture des voix. L'usage commercial demande une offre payante.</p>
       </div>
       <div class="field"><span>Débit de parole</span>
         <div class="range-row"><input id="rate" type="range" min="0.8" max="1.3" step="0.05"><span id="rateVal" class="file-status"></span></div>
@@ -213,7 +231,7 @@ footer.foot{text-align:center;font-size:12px;color:var(--muted);padding:0 16px 2
   </div>
 
   <div class="notice"><strong>Confidentialité.</strong> Le CV, l'offre, les réponses et l'audio sont traités par l'API DeepSeek (serveurs en Chine). Retire du CV ce qui est sensible (nom de famille, adresse) avant de commencer.</div>
-  <p class="est">Coût estimé : moins de 0,10 $ par séance, débité sur ton compte DeepSeek.</p>
+  <p class="est">Coût DeepSeek estimé : moins de 0,10 $ par séance. Les voix Google et ElevenLabs sont facturées à part par ces services.</p>
   <div id="setupError" class="error" hidden></div>
   <button id="btnStart" class="btn primary big" type="button">Démarrer l'entretien</button>
 </section>
@@ -279,7 +297,14 @@ const PRICE = {inMiss: 0.30, inHit: 0.006, out: 1.20, asrHour: 0.116, read: 0.00
 const MAX_REC = 118; // secondes (limite ASR : 120 s)
 const STORE = 'simulateur-entretien:v1';
 const OPENING = "[Le candidat vient de se connecter à l'entretien en visio. Commence l'entretien.]";
-const DEFAULTS = {contrat: 'alternance', niveau: 'Bac+5', mode: 'oral', nbq: '10', exigence: 'standard', feedback: 'fin', voice: '', rate: 1, autoSend: true, remember: true};
+const DEFAULTS = {contrat: 'alternance', niveau: 'Bac+5', mode: 'oral', nbq: '10', exigence: 'standard', feedback: 'fin', voice: '', rate: 1, autoSend: true, remember: true,
+  tts: 'basic', gVoice: 'fr-FR-Chirp3-HD-Charon', gList: null, eVoice: 'JBFqnCBsd6RMkjVDRZzb', eList: null, eModel: 'eleven_flash_v2_5'};
+// Voix premium : tarifs en $ par million de caractères (prix publics, hors quotas gratuits)
+const TTS_PRICE = {chirp: 30, studio: 160, neural2: 16, wavenet: 4, standard: 4, eleven_flash_v2_5: 50, eleven_multilingual_v2: 100};
+const G_DEFAULT = [['Charon', 'homme'], ['Aoede', 'femme'], ['Achird', 'homme'], ['Sulafat', 'femme'], ['Schedar', 'homme'], ['Vindemiatrix', 'femme']]
+  .map(([n, g]) => ({v: 'fr-FR-Chirp3-HD-' + n, label: `${n} · ${g} · Chirp 3 HD`}));
+const E_DEFAULT = [{v: 'JBFqnCBsd6RMkjVDRZzb', label: 'George (voix par défaut)'}];
+const SAMPLE = "Bonjour, je suis le recruteur. Merci d'être avec nous aujourd'hui, nous allons commencer l'entretien.";
 const LABELS = {contrat: {alternance: 'Alternance', stage: 'Stage', emploi: 'Premier emploi'}, mode: {oral: "À l'oral", ecrit: "À l'écrit"}};
 
 const $ = s => document.querySelector(s);
@@ -294,18 +319,20 @@ let usage = newUsage();
 const micOK = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && window.isSecureContext !== false;
 const ttsOK = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 
-function newUsage() { return {inMiss: 0, inHit: 0, out: 0, asrMs: 0, reads: 0}; }
+function newUsage() { return {inMiss: 0, inHit: 0, out: 0, asrMs: 0, reads: 0, tts: {}}; }
 
 /* ---------- Stockage local (facultatif) ---------- */
 function loadStore() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { return {}; } }
 function saveStore() {
   try {
     const o = {settings};
-    if (settings.remember) o.key = $('#apiKey').value.trim();
+    if (settings.remember) { o.key = $('#apiKey').value.trim(); o.gKey = gKey(); o.eKey = eKey(); }
     localStorage.setItem(STORE, JSON.stringify(o));
   } catch { /* stockage indisponible : pas grave */ }
 }
 const getKey = () => $('#apiKey').value.trim();
+const gKey = () => $('#googleKey').value.trim();
+const eKey = () => $('#elevenKey').value.trim();
 
 /* ---------- Appels API ---------- */
 class ApiError extends Error {
@@ -450,7 +477,18 @@ function renderCostCard() {
   const sec = u.asrMs / 1000;
   const audio = sec <= 0 ? '' : sec < 60 ? `, ${Math.round(sec)} s d'audio transcrit` : `, ${(sec / 60).toLocaleString('fr-FR', {maximumFractionDigits: 1})} min d'audio transcrit`;
   $('#costCard').innerHTML = `<h3>Coût de la séance</h3><div class="big">≈ ${fmtUSD(cost())}</div>
-    <p class="hint">${tokIn.toLocaleString('fr-FR')} tokens envoyés (dont ${u.inHit.toLocaleString('fr-FR')} en cache), ${u.out.toLocaleString('fr-FR')} générés${audio}. Calculé au tarif heures pleines, sans promotion : c'est un maximum. La voix du recruteur est celle de l'appareil, donc gratuite.</p>`;
+    <p class="hint">DeepSeek : ${tokIn.toLocaleString('fr-FR')} tokens envoyés (dont ${u.inHit.toLocaleString('fr-FR')} en cache), ${u.out.toLocaleString('fr-FR')} générés${audio}. Calculé au tarif heures pleines, sans promotion : c'est un maximum.</p>
+    <p class="hint">${ttsCostText(u)}</p>`;
+}
+
+function ttsCostText(u) {
+  const parts = Object.entries(u.tts || {}).map(([k, n]) => {
+    const [eng, tier] = k.split(':'), usd = fmtUSD(n * (TTS_PRICE[tier] || 0) / 1e6), nb = n.toLocaleString('fr-FR');
+    return eng === 'google'
+      ? `Voix Google : ${nb} caractères, gratuits dans le quota mensuel de Google, sinon ≈ ${usd}.`
+      : `Voix ElevenLabs : ${nb} caractères, décomptés de tes crédits (≈ ${usd} au tarif API).`;
+  });
+  return parts.length ? parts.join(' ') : "Voix du recruteur : celle de l'appareil, donc gratuite.";
 }
 
 /* ---------- Fichiers (PDF, Word, texte) ---------- */
@@ -636,32 +674,244 @@ function loadVoices() {
   $('#voiceWarn').hidden = voices.length > 0 || all.length === 0;
 }
 const pickVoice = () => voices.find(v => v.voiceURI === settings.voice) || voices[0] || null;
-function speak(text) {
-  if (!ttsOK || !text) return;
-  speechSynthesis.cancel();
+function splitText(text, max) {
   const sentences = text.match(/[^.!?…]+[.!?…]+[»"”)]*\s*|[^.!?…]+$/g) || [text];
   const chunks = [];
   for (const s of sentences) {
-    if (chunks.length && (chunks[chunks.length - 1] + s).length < 220) chunks[chunks.length - 1] += s; else chunks.push(s);
+    if (chunks.length && (chunks[chunks.length - 1] + s).length < max) chunks[chunks.length - 1] += s; else chunks.push(s);
   }
+  return chunks.map(c => c.trim()).filter(Boolean);
+}
+
+// Lecteur audio unique (débloqué au premier geste : indispensable sur iPhone)
+const player = new Audio();
+let speakToken = 0, speakCtrl = null, playDone = null, audioUnlocked = false;
+const premiumOff = {};
+function silentWav() {
+  const n = 800, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (p, t) => { for (let i = 0; i < t.length; i++) v.setUint8(p + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  return new Blob([buf], {type: 'audio/wav'});
+}
+function unlockAudio() { // à appeler dans un geste (clic)
+  if (ttsOK && settings.mode === 'oral') { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {} }
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  try { player.src = URL.createObjectURL(silentWav()); const p = player.play(); if (p) p.then(() => { if (!playDone) player.pause(); }).catch(() => {}); } catch {}
+}
+function engine() {
+  const e = settings.tts;
+  if (e === 'google' && gKey() && !premiumOff.google) return 'google';
+  if (e === 'eleven' && eKey() && !premiumOff.eleven) return 'eleven';
+  return 'basic';
+}
+function speak(text, eng) {
+  stopSpeaking();
+  if (!text) return;
+  eng = eng || engine();
+  if (eng === 'basic') speakBasic(text); else speakPremium(text, eng);
+}
+function speakBasic(text) {
+  if (!ttsOK || !text) return;
+  speechSynthesis.cancel();
+  const chunks = splitText(text, 160); // < 14 s par morceau (limite de certaines voix Edge)
   const v = pickVoice();
   chunks.forEach((c, i) => {
-    const u = new SpeechSynthesisUtterance(c.trim());
+    const u = new SpeechSynthesisUtterance(c);
     u.lang = (v && v.lang) || 'fr-FR'; if (v) u.voice = v; u.rate = +settings.rate || 1;
     if (i === 0) u.onstart = () => setSpeaking(true);
     if (i === chunks.length - 1) u.onend = u.onerror = () => setSpeaking(false);
     speechSynthesis.speak(u);
   });
 }
-function stopSpeaking() { if (ttsOK) speechSynthesis.cancel(); setSpeaking(false); }
+async function speakPremium(text, eng) {
+  const token = speakToken, ctrl = speakCtrl = new AbortController();
+  const chunks = splitText(text, 350);
+  setSpeaking('loading');
+  const jobs = chunks.map(c => (eng === 'google' ? synthGoogle : synthEleven)(c, ctrl.signal));
+  jobs.forEach(j => j.catch(() => {}));
+  let i = 0;
+  try {
+    for (; i < jobs.length; i++) {
+      const url = await jobs[i];
+      if (token !== speakToken) return;
+      setSpeaking(true);
+      await playUrl(url);
+      URL.revokeObjectURL(url);
+      if (token !== speakToken) return;
+    }
+  } catch (e) {
+    if (token !== speakToken || (e && e.name === 'AbortError')) return;
+    if (e && e.name === 'NotAllowedError') { ttsNotice(eng, "Le navigateur a bloqué le son : touche « Réécouter » pour entendre le recruteur."); return; }
+    const perm = e instanceof TtsError && ([401, 402, 403].includes(e.status) || (e.status === 400 && /api key|clé/i.test(e.message)) || (e.status === 429 && /quota/i.test(e.message)));
+    if (perm) premiumOff[eng] = true;
+    ttsNotice(eng, `Voix ${eng === 'google' ? 'Google' : 'ElevenLabs'} indisponible (${ttsErrMsg(eng, e)}) : voix basique utilisée${perm ? ' pour la suite' : ''}.`);
+    speakBasic(chunks.slice(i).join(' '));
+  } finally { if (token === speakToken && !(ttsOK && speechSynthesis.speaking)) setSpeaking(false); }
+}
+function playUrl(url) {
+  return new Promise((res, rej) => {
+    playDone = res;
+    player.onended = () => { playDone = null; res(); };
+    player.onerror = () => { playDone = null; rej(new Error('lecture audio impossible')); };
+    player.src = url;
+    const p = player.play();
+    if (p) p.catch(e => { playDone = null; rej(e); });
+  });
+}
+function stopSpeaking() {
+  speakToken++;
+  if (speakCtrl) { speakCtrl.abort(); speakCtrl = null; }
+  try { player.pause(); } catch {}
+  if (playDone) { const d = playDone; playDone = null; d(); }
+  if (ttsOK) speechSynthesis.cancel();
+  setSpeaking(false);
+}
 function setSpeaking(on) {
   const el = $('#speakState');
-  el.innerHTML = on ? '🔊 Le recruteur parle… <button class="link" type="button" id="btnHush">Couper</button>' : '';
-  if (on) $('#btnHush').onclick = stopSpeaking;
+  el.innerHTML = on === 'loading' ? '<span class="spinner sm"></span> Voix en préparation…'
+    : on ? '🔊 Le recruteur parle… <button class="link" type="button" id="btnHush">Couper</button>' : '';
+  if (on === true) $('#btnHush').onclick = stopSpeaking;
 }
-function primeSpeech() { // iOS : la synthèse doit être « débloquée » par un geste
-  if (!ttsOK || settings.mode !== 'oral') return;
-  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch {}
+
+class TtsError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+async function ttsFetch(url, init) {
+  let r;
+  try { r = await fetch(url, init); }
+  catch (e) { if (init.signal && init.signal.aborted) throw e; throw new TtsError(0, 'connexion impossible'); }
+  if (!r.ok) {
+    let m = r.statusText;
+    try {
+      const t = await r.text(); m = t || m;
+      try {
+        const j = JSON.parse(t), d = j.detail;
+        m = (j.error && (j.error.message || j.error.status)) || (d && (typeof d === 'string' ? d : d.message || d.status)) || t;
+      } catch {}
+    } catch {}
+    throw new TtsError(r.status, String(m).slice(0, 200));
+  }
+  return r;
+}
+function ttsErrMsg(eng, e) {
+  if (!(e instanceof TtsError)) return (e && e.message) || String(e);
+  const m = e.message || '';
+  if (eng === 'google') {
+    if (/api key not valid|API_KEY_INVALID/i.test(m)) return 'clé Google invalide';
+    if (/referer|referrer/i.test(m)) return "clé non autorisée pour ce site : vérifie ses restrictions";
+    if (/billing/i.test(m)) return 'facturation non activée sur ton projet Google Cloud';
+    if (/has not been used|disabled|SERVICE_DISABLED/i.test(m)) return "API Cloud Text-to-Speech non activée sur ton projet";
+    if (e.status === 429) return 'quota Google dépassé';
+  } else {
+    if (e.status === 401) return /permission/i.test(m) ? 'il manque une permission à la clé ElevenLabs' : 'clé ElevenLabs invalide';
+    if (e.status === 402 || /quota|credits/i.test(m)) return 'crédits ElevenLabs insuffisants';
+    if (e.status === 429) return 'trop de requêtes ElevenLabs';
+  }
+  return (e.status ? 'erreur ' + e.status + ' : ' : '') + m;
+}
+function ttsNotice(eng, msg) {
+  if (S && !$('#view-interview').hidden) {
+    S.ttsNoted = S.ttsNoted || {};
+    if (!S.ttsNoted[eng + msg]) { S.ttsNoted[eng + msg] = true; addBubble('note', esc(msg)); }
+  } else {
+    const st = $(eng === 'google' ? '#gStatus' : eng === 'eleven' ? '#eStatus' : '#voiceWarn');
+    st.hidden = false; st.textContent = '✗ ' + msg;
+  }
+}
+function addTts(k, n) { usage.tts[k] = (usage.tts[k] || 0) + n; }
+function b64Blob(b64, type) {
+  const bin = atob(b64), a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return new Blob([a], {type});
+}
+const gTier = n => /Chirp3-HD|Chirp-HD/i.test(n) ? 'chirp' : /Studio/i.test(n) ? 'studio' : /Neural2|Polyglot/i.test(n) ? 'neural2' : /Wavenet/i.test(n) ? 'wavenet' : 'standard';
+
+async function synthGoogle(text, signal) {
+  const name = settings.gVoice || G_DEFAULT[0].v, rate = +settings.rate || 1;
+  const body = {input: {text}, voice: {languageCode: name.split('-').slice(0, 2).join('-'), name}, audioConfig: {audioEncoding: 'MP3'}};
+  if (rate !== 1) body.audioConfig.speakingRate = rate;
+  const url = 'https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(gKey());
+  const send = b => ttsFetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b), signal});
+  let r;
+  try { r = await send(body); }
+  catch (e) {
+    if (e instanceof TtsError && e.status === 400 && body.audioConfig.speakingRate && /rate|pace|speed/i.test(e.message)) { delete body.audioConfig.speakingRate; r = await send(body); }
+    else throw e;
+  }
+  const j = await r.json();
+  if (!j.audioContent) throw new TtsError(0, 'réponse sans audio');
+  addTts('google:' + gTier(name), text.length);
+  return URL.createObjectURL(b64Blob(j.audioContent, 'audio/mpeg'));
+}
+async function synthEleven(text, signal) {
+  const voice = settings.eVoice || E_DEFAULT[0].v, model = settings.eModel || 'eleven_flash_v2_5', rate = +settings.rate || 1;
+  const body = {text, model_id: model};
+  if (/flash|turbo/.test(model)) body.language_code = 'fr';
+  if (rate !== 1) body.voice_settings = {speed: Math.min(1.2, Math.max(0.7, rate))};
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`;
+  const send = b => ttsFetch(url, {method: 'POST', headers: {'xi-api-key': eKey(), 'Content-Type': 'application/json', Accept: 'audio/mpeg'}, body: JSON.stringify(b), signal});
+  let r;
+  try { r = await send(body); }
+  catch (e) {
+    if (e instanceof TtsError && (e.status === 400 || e.status === 422) && (body.voice_settings || body.language_code)) r = await send({text, model_id: model});
+    else throw e;
+  }
+  const blob = await r.blob();
+  addTts('eleven:' + model, text.length);
+  return URL.createObjectURL(new Blob([blob], {type: 'audio/mpeg'}));
+}
+
+function fillSelect(sel, list, value) {
+  const el = $(sel);
+  el.innerHTML = list.map(o => `<option value="${esc(o.v)}">${esc(o.label)}</option>`).join('');
+  if (value && list.some(o => o.v === value)) el.value = value;
+}
+async function loadGoogleVoices() {
+  const st = $('#gStatus');
+  if (!gKey()) { st.textContent = "Ajoute d'abord ta clé Google."; return; }
+  st.innerHTML = '<span class="spinner sm"></span> Chargement des voix…';
+  try {
+    const r = await ttsFetch('https://texttospeech.googleapis.com/v1/voices?languageCode=fr-FR&key=' + encodeURIComponent(gKey()), {});
+    const j = await r.json();
+    const order = {chirp: 0, studio: 1, neural2: 2, wavenet: 3, standard: 4};
+    const tl = {chirp: 'Chirp 3 HD', studio: 'Studio', neural2: 'Neural2', wavenet: 'WaveNet', standard: 'Standard'};
+    const list = (j.voices || []).filter(v => /^fr-FR/i.test(v.name))
+      .map(v => ({v: v.name, t: gTier(v.name), g: v.ssmlGender}))
+      .sort((a, b) => order[a.t] - order[b.t] || a.v.localeCompare(b.v))
+      .map(x => ({v: x.v, label: `${x.v.replace(/^fr-FR-(Chirp3-HD-)?/i, '')} · ${x.g === 'MALE' ? 'homme' : x.g === 'FEMALE' ? 'femme' : 'neutre'} · ${tl[x.t]}`}));
+    if (!list.length) throw new TtsError(0, 'aucune voix française trouvée');
+    settings.gList = list; fillSelect('#gVoice', list, settings.gVoice); settings.gVoice = $('#gVoice').value;
+    premiumOff.google = false; saveStore();
+    st.textContent = `✓ ${list.length} voix chargées. Les « Chirp 3 HD » sont les plus naturelles.`;
+  } catch (e) { st.textContent = '✗ ' + ttsErrMsg('google', e); }
+}
+async function loadElevenVoices() {
+  const st = $('#eStatus');
+  if (!eKey()) { st.textContent = "Ajoute d'abord ta clé ElevenLabs."; return; }
+  st.innerHTML = '<span class="spinner sm"></span> Chargement des voix…';
+  try {
+    const r = await ttsFetch('https://api.elevenlabs.io/v1/voices', {headers: {'xi-api-key': eKey()}});
+    const j = await r.json();
+    const gender = g => g === 'male' ? 'homme' : g === 'female' ? 'femme' : g;
+    const list = (j.voices || []).map(v => {
+      const l = v.labels || {};
+      const fr = /\bfr\b|french|fran/i.test([l.language, l.accent, v.name, (v.verified_languages || []).map(x => x.language).join(' ')].join(' '));
+      return {v: v.voice_id, fr, label: [v.name, l.gender && gender(l.gender), l.accent].filter(Boolean).join(' · ')};
+    }).sort((a, b) => (b.fr - a.fr) || a.label.localeCompare(b.label)).map(({v, label}) => ({v, label}));
+    if (!list.length) throw new TtsError(0, 'aucune voix trouvée');
+    settings.eList = list; fillSelect('#eVoice', list, settings.eVoice); settings.eVoice = $('#eVoice').value;
+    premiumOff.eleven = false; saveStore();
+    st.textContent = `✓ ${list.length} voix chargées (voix françaises en premier).`;
+  } catch (e) { st.textContent = '✗ ' + ttsErrMsg('eleven', e); }
+}
+function testVoice(eng) {
+  unlockAudio();
+  if (eng !== 'basic') {
+    const st = $(eng === 'google' ? '#gStatus' : '#eStatus');
+    if (!(eng === 'google' ? gKey() : eKey())) { st.textContent = "Ajoute d'abord ta clé."; return; }
+    premiumOff[eng] = false; st.textContent = '';
+  }
+  speak(SAMPLE, eng);
 }
 
 /* ---------- Enregistrement et transcription (ASR DeepSeek) ---------- */
@@ -775,7 +1025,7 @@ async function startInterview() {
   let cv = $('#cv').value.trim(), offre = $('#offre').value.trim();
   if (cv.length < 80) return fail('Le CV est vide ou trop court (étape 2).');
   if (!offre) return fail("Ajoute l'offre visée, en texte ou en lien (étape 3).");
-  saveStore(); primeSpeech();
+  saveStore(); unlockAudio();
   const btn = $('#btnStart'); btn.disabled = true;
   usage = newUsage();
   try {
@@ -796,10 +1046,11 @@ function begin(cv, offre) {
     cv, offre, prenom: $('#prenom').value.trim(), contrat: settings.contrat, niveau: settings.niveau, mode: settings.mode,
     N: +settings.nbq, exigence: settings.exigence, feedback: settings.feedback,
     messages: [{role: 'user', content: OPENING}], log: [], n: 0, cat: '', finished: false, early: false,
-    busy: false, needRetry: false, ctrl: null, startedAt: Date.now(), endedAt: 0,
+    busy: false, needRetry: false, ctrl: null, startedAt: Date.now(), endedAt: 0, ttsNoted: {},
     report: {text: '', done: false, error: null, promise: null, stop: null}
   };
   S.system = buildRecruiterPrompt(S);
+  for (const k in premiumOff) delete premiumOff[k]; // nouvelle séance : on retente les voix premium
   $('#chat').innerHTML = ''; $('#answer').value = ''; autosize(); hint('');
   $('#endBox').hidden = true; $('#clock').textContent = '0:00';
   setProgress(null);
@@ -825,7 +1076,7 @@ function addTurn() {
       recb.hidden = !live && !p.body;
       const c = p.tag ? `Q${p.tag.n}/${p.tag.N} · ${p.tag.cat}` : p.relance ? 'Relance' : p.qfin ? 'Vos questions' : '';
       chip.hidden = !c; chip.textContent = c;
-      if (!live && p.body && ttsOK && S.mode === 'oral') { replay.hidden = false; replay.onclick = () => speak(p.body); }
+      if (!live && p.body && S.mode === 'oral') { replay.hidden = false; replay.onclick = () => { unlockAudio(); speak(p.body); }; }
     }
   };
 }
@@ -1063,6 +1314,7 @@ function applySettingsToUI() {
   $('#rate').value = settings.rate; $('#rateVal').textContent = '×' + (+settings.rate).toFixed(2).replace('.', ',');
   $('#autoSend').checked = !!settings.autoSend; $('#rememberKey').checked = !!settings.remember;
   $('#voiceBox').hidden = settings.mode !== 'oral';
+  $('#ttsBasic').hidden = settings.tts !== 'basic'; $('#ttsGoogle').hidden = settings.tts !== 'google'; $('#ttsEleven').hidden = settings.tts !== 'eleven';
   $('#micWarn').hidden = !(settings.mode === 'oral' && !micOK);
   $('#autoSend').closest('.check').hidden = !micOK;
 }
@@ -1070,6 +1322,12 @@ function init() {
   const st = loadStore();
   settings = {...DEFAULTS, ...(st.settings || {})};
   if (st.key) $('#apiKey').value = st.key;
+  if (st.gKey) $('#googleKey').value = st.gKey;
+  if (st.eKey) $('#elevenKey').value = st.eKey;
+  fillSelect('#gVoice', settings.gList || G_DEFAULT, settings.gVoice);
+  fillSelect('#eVoice', settings.eList || E_DEFAULT, settings.eVoice);
+  $('#eModel').value = settings.eModel;
+  document.querySelectorAll('.host').forEach(el => { el.textContent = location.host || 'ce site'; });
   applySettingsToUI();
   document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -1080,7 +1338,16 @@ function init() {
   $('#rememberKey').addEventListener('change', e => { settings.remember = e.target.checked; saveStore(); });
   $('#apiKey').addEventListener('change', () => { $('#keyStatus').hidden = true; saveStore(); });
   $('#voice').addEventListener('change', e => { settings.voice = e.target.value; saveStore(); });
-  $('#btnTestVoice').addEventListener('click', () => speak("Bonjour, je suis le recruteur. Nous allons commencer l'entretien."));
+  $('#btnTestVoice').addEventListener('click', () => testVoice('basic'));
+  $('#btnGTest').addEventListener('click', () => testVoice('google'));
+  $('#btnETest').addEventListener('click', () => testVoice('eleven'));
+  $('#btnGLoad').addEventListener('click', loadGoogleVoices);
+  $('#btnELoad').addEventListener('click', loadElevenVoices);
+  $('#gVoice').addEventListener('change', e => { settings.gVoice = e.target.value; saveStore(); });
+  $('#eVoice').addEventListener('change', e => { settings.eVoice = e.target.value; saveStore(); });
+  $('#eModel').addEventListener('change', e => { settings.eModel = e.target.value; saveStore(); });
+  $('#googleKey').addEventListener('change', () => { premiumOff.google = false; saveStore(); if (gKey() && !settings.gList) loadGoogleVoices(); });
+  $('#elevenKey').addEventListener('change', () => { premiumOff.eleven = false; saveStore(); if (eKey() && !settings.eList) loadElevenVoices(); });
   $('#btnVerify').addEventListener('click', verifyKey);
   $('#cvFile').addEventListener('change', e => importFile(e.target, $('#cv'), $('#cvStatus')));
   $('#offreFile').addEventListener('change', e => importFile(e.target, $('#offre'), $('#offreStatus')));

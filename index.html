@@ -35,6 +35,7 @@ textarea{resize:vertical;min-height:110px;line-height:1.45}
 .row{display:flex;gap:8px}
 .row input,.row select{flex:1;min-width:0}
 .sub{border-left:3px solid var(--accent-soft);padding-left:12px}
+#gStatus,#eStatus{min-height:19px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:10px 0 0;cursor:pointer}
 .check input{margin-top:3px;flex:none}
 .hint{font-size:13px;color:var(--muted);margin:8px 0 0}
@@ -136,7 +137,7 @@ footer.foot{text-align:center;font-size:12px;color:var(--muted);padding:0 16px 2
 <header class="top">
   <div class="brand">
     <div class="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-    <div><h1>Simulateur d'entretien</h1><p>Recruteur IA · DeepSeek</p></div>
+    <div><h1>Simulateur d'entretien</h1><p id="brandSub">Recruteur IA</p></div>
   </div>
   <div id="costChip" class="cost-chip" hidden></div>
 </header>
@@ -148,13 +149,24 @@ footer.foot{text-align:center;font-size:12px;color:var(--muted);padding:0 16px 2
   <p class="lead">Le recruteur IA présente le poste, pose ses questions une par une, relance si c'est flou, puis tu reçois un compte-rendu détaillé avec des réponses idéales.</p>
 
   <div class="card">
-    <div class="card-h"><h3>1. Clé API DeepSeek</h3><span id="keyStatus" class="pill" hidden></span></div>
-    <div class="row">
-      <input id="apiKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" autocapitalize="off">
-      <button id="btnVerify" class="btn ghost" type="button">Vérifier</button>
+    <div class="card-h"><h3>1. Moteur IA</h3><span id="keyStatus" class="pill" hidden></span></div>
+    <div class="seg" data-name="ai"><button type="button" data-v="gemini">Gemini (gratuit)</button><button type="button" data-v="deepseek">DeepSeek</button></div>
+    <div id="aiGemini" class="sub" style="margin-top:12px">
+      <div class="row">
+        <input id="gmKey" type="password" placeholder="Clé API Gemini (AIza…)" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <button id="btnGmVerify" class="btn ghost" type="button">Vérifier</button>
+      </div>
+      <div style="margin-top:8px"><select id="gmModel"></select></div>
+      <p class="hint">Clé gratuite, sans carte bancaire, à créer en 1 minute sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. L'offre gratuite a des limites d'usage par minute et par jour : parfait pour tester. Garde un modèle « Flash ».</p>
     </div>
-    <label class="check"><input type="checkbox" id="rememberKey" checked> Garder la clé sur cet appareil</label>
-    <p class="hint">À créer sur <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>. La clé reste dans ce navigateur et n'est envoyée qu'à DeepSeek.</p>
+    <div id="aiDeepseek" class="sub" style="margin-top:12px" hidden>
+      <div class="row">
+        <input id="apiKey" type="password" placeholder="Clé API DeepSeek (sk-…)" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <button id="btnVerify" class="btn ghost" type="button">Vérifier</button>
+      </div>
+      <p class="hint">À créer sur <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a> (compte rechargé de quelques dollars).</p>
+    </div>
+    <label class="check"><input type="checkbox" id="rememberKey" checked> Garder les clés sur cet appareil (elles ne sont envoyées qu'aux services concernés)</label>
   </div>
 
   <div class="card">
@@ -230,8 +242,8 @@ footer.foot{text-align:center;font-size:12px;color:var(--muted);padding:0 16px 2
     </div>
   </div>
 
-  <div class="notice"><strong>Confidentialité.</strong> Le CV, l'offre, les réponses et l'audio sont traités par l'API DeepSeek (serveurs en Chine). Retire du CV ce qui est sensible (nom de famille, adresse) avant de commencer.</div>
-  <p class="est">Coût DeepSeek estimé : moins de 0,10 $ par séance. Les voix Google et ElevenLabs sont facturées à part par ces services.</p>
+  <div class="notice" id="privacy"></div>
+  <p class="est" id="estimate"></p>
   <div id="setupError" class="error" hidden></div>
   <button id="btnStart" class="btn primary big" type="button">Démarrer l'entretien</button>
 </section>
@@ -297,7 +309,9 @@ const PRICE = {inMiss: 0.30, inHit: 0.006, out: 1.20, asrHour: 0.116, read: 0.00
 const MAX_REC = 118; // secondes (limite ASR : 120 s)
 const STORE = 'simulateur-entretien:v1';
 const OPENING = "[Le candidat vient de se connecter à l'entretien en visio. Commence l'entretien.]";
-const DEFAULTS = {contrat: 'alternance', niveau: 'Bac+5', mode: 'oral', nbq: '10', exigence: 'standard', feedback: 'fin', voice: '', rate: 1, autoSend: true, remember: true,
+const GEM = 'https://generativelanguage.googleapis.com/v1beta';
+const GM_DEFAULT = [{v: 'gemini-flash-latest', label: 'gemini-flash-latest (recommandé)'}, {v: 'gemini-flash-lite-latest', label: 'gemini-flash-lite-latest (le plus léger)'}];
+const DEFAULTS = {ai: 'gemini', gmModel: 'gemini-flash-latest', gmList: null, contrat: 'alternance', niveau: 'Bac+5', mode: 'oral', nbq: '10', exigence: 'standard', feedback: 'fin', voice: '', rate: 1, autoSend: true, remember: true,
   tts: 'basic', gVoice: 'fr-FR-Chirp3-HD-Charon', gList: null, eVoice: 'JBFqnCBsd6RMkjVDRZzb', eList: null, eModel: 'eleven_flash_v2_5'};
 // Voix premium : tarifs en $ par million de caractères (prix publics, hors quotas gratuits)
 const TTS_PRICE = {chirp: 30, studio: 160, neural2: 16, wavenet: 4, standard: 4, eleven_flash_v2_5: 50, eleven_multilingual_v2: 100};
@@ -316,27 +330,30 @@ const dur = ms => ms < 60000 ? Math.round(ms / 1000) + ' s' : Math.round(ms / 60
 let settings = {...DEFAULTS};
 let S = null;          // session d'entretien en cours
 let usage = newUsage();
+const AI_NAME = {gemini: 'Gemini', deepseek: 'DeepSeek'};
+const curAI = () => (S && S.ai) || settings.ai;
 const micOK = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && window.isSecureContext !== false;
 const ttsOK = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 
-function newUsage() { return {inMiss: 0, inHit: 0, out: 0, asrMs: 0, reads: 0, tts: {}}; }
+function newUsage() { return {ai: settings.ai, inMiss: 0, inHit: 0, out: 0, asrMs: 0, reads: 0, tts: {}}; }
 
 /* ---------- Stockage local (facultatif) ---------- */
 function loadStore() { try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch { return {}; } }
 function saveStore() {
   try {
     const o = {settings};
-    if (settings.remember) { o.key = $('#apiKey').value.trim(); o.gKey = gKey(); o.eKey = eKey(); }
+    if (settings.remember) { o.key = $('#apiKey').value.trim(); o.gmKey = gmKey(); o.gKey = gKey(); o.eKey = eKey(); }
     localStorage.setItem(STORE, JSON.stringify(o));
   } catch { /* stockage indisponible : pas grave */ }
 }
 const getKey = () => $('#apiKey').value.trim();
 const gKey = () => $('#googleKey').value.trim();
+const gmKey = () => $('#gmKey').value.trim();
 const eKey = () => $('#elevenKey').value.trim();
 
 /* ---------- Appels API ---------- */
 class ApiError extends Error {
-  constructor(kind, msg, status) { super(msg || kind); this.kind = kind; this.status = status; }
+  constructor(kind, msg, status, provider = 'deepseek') { super(msg || kind); this.kind = kind; this.status = status; this.provider = provider; }
 }
 async function api(path, init) {
   let r;
@@ -352,10 +369,21 @@ async function api(path, init) {
 function friendly(e) {
   if (e && e.name === 'AbortError') return 'Requête annulée.';
   if (!(e instanceof ApiError)) return 'Erreur inattendue : ' + ((e && e.message) || e);
-  if (e.kind === 'network') return 'Impossible de joindre DeepSeek. Vérifie ta connexion internet.';
-  if (e.kind === 'refusal') return 'Le filtre de sécurité de DeepSeek a bloqué cette réponse. Reformule et réessaie.';
-  if (e.kind === 'empty') return 'DeepSeek a renvoyé une réponse vide. Réessaie.';
+  const P = AI_NAME[e.provider] || 'DeepSeek';
+  if (e.kind === 'network') return `Impossible de joindre ${P}. Vérifie ta connexion internet.`;
+  if (e.kind === 'refusal') return `Le filtre de sécurité de ${P} a bloqué cette réponse. Reformule et réessaie.`;
+  if (e.kind === 'empty') return `${P} a renvoyé une réponse vide. Réessaie.`;
   if (e.kind === 'read' || e.kind === 'stream') return e.message;
+  if (e.provider === 'gemini') {
+    const m = e.message || '';
+    if (/api key not valid|API_KEY_INVALID|API key expired/i.test(m) || e.status === 401) return 'Clé Gemini refusée : vérifie-la (elle commence par « AIza »).';
+    if (e.status === 429) return 'Quota gratuit Gemini atteint pour le moment (limite par minute ou par jour). Patiente une minute, ou réessaie demain.';
+    if (e.status === 404) return 'Modèle Gemini introuvable : touche « Vérifier » dans les réglages et choisis un modèle Flash.';
+    if (e.status === 400 && /location|region|country/i.test(m)) return "L'API Gemini n'est pas disponible depuis ta région.";
+    if (e.status === 403) return 'Accès Gemini refusé : ' + m.slice(0, 160);
+    if (e.status >= 500) return 'Gemini est momentanément surchargé. Réessaie dans un instant.';
+    return 'Erreur Gemini ' + (e.status || '') + ' : ' + m.slice(0, 200);
+  }
   switch (e.status) {
     case 401: return 'Clé API refusée : vérifie-la (elle commence par « sk- »).';
     case 402: return 'Solde DeepSeek insuffisant : recharge ton compte sur platform.deepseek.com.';
@@ -366,7 +394,7 @@ function friendly(e) {
 }
 
 // Messages (API compatible Anthropic de DeepSeek), réponse en flux SSE
-async function streamMessage(body, onText, signal) {
+async function deepseekStream(body, onText, signal) {
   const send = b => api('/anthropic/v1/messages', {
     method: 'POST',
     headers: {'x-api-key': getKey(), 'Content-Type': 'application/json', Accept: 'text/event-stream'},
@@ -433,6 +461,120 @@ async function streamMessage(body, onText, signal) {
   return {stop};
 }
 
+/* ---------- Gemini (API Google AI Studio) ---------- */
+const gemThink = {}; // modèle -> réglage de réflexion accepté
+const THINK = [{thinkingLevel: 'low'}, {thinkingBudget: 0}, null];
+async function gfetch(url, init) {
+  let r;
+  try { r = await fetch(url, init); }
+  catch (e) { if (init.signal && init.signal.aborted) throw e; throw new ApiError('network', e.message, 0, 'gemini'); }
+  if (!r.ok) {
+    let m = r.statusText;
+    try {
+      const t = await r.text(); m = t || m;
+      try { const j = JSON.parse(t), er = Array.isArray(j) ? j[0] && j[0].error : j.error; m = (er && (er.message || er.status)) || t; } catch {}
+    } catch {}
+    throw new ApiError('http', String(m), r.status, 'gemini');
+  }
+  return r;
+}
+function gemBody({system, messages, maxTokens, readUrl}, think) {
+  const b = {contents: messages.map(m => ({role: m.role === 'assistant' ? 'model' : 'user', parts: m.parts || [{text: m.content}]})),
+    generationConfig: {maxOutputTokens: maxTokens || 4096}};
+  if (system) b.systemInstruction = {parts: [{text: system}]};
+  if (think) b.generationConfig.thinkingConfig = think;
+  if (readUrl) b.tools = [{url_context: {}}];
+  return b;
+}
+async function gemRequest(args, signal, stream) {
+  const model = (settings.gmModel || GM_DEFAULT[0].v).replace(/^models\//, '');
+  const url = `${GEM}/models/${encodeURIComponent(model)}:${stream ? 'streamGenerateContent?alt=sse&' : 'generateContent?'}key=${encodeURIComponent(gmKey())}`;
+  let i = gemThink[model] ?? 0;
+  for (;;) {
+    try {
+      const r = await gfetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(gemBody(args, THINK[i])), signal});
+      gemThink[model] = i; return r;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 400 && /think/i.test(e.message) && i < THINK.length - 1) { i++; continue; }
+      throw e;
+    }
+  }
+}
+function gemUsage(um) {
+  if (!um) return;
+  const cached = um.cachedContentTokenCount || 0;
+  usage.inHit += cached; usage.inMiss += Math.max(0, (um.promptTokenCount || 0) - cached);
+  usage.out += (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0);
+}
+const gemText = c => ((c && c.content && c.content.parts) || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
+async function geminiStream(args, onText, signal) {
+  const r = await gemRequest(args, signal, true);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '', got = false, finish = null, blocked = null, um = null;
+  const handle = raw => {
+    const data = raw.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n');
+    if (!data) return;
+    let p; try { p = JSON.parse(data); } catch { return; }
+    if (p.error) throw new ApiError('http', p.error.message || 'erreur', p.error.code, 'gemini');
+    if (p.promptFeedback && p.promptFeedback.blockReason) blocked = p.promptFeedback.blockReason;
+    if (p.usageMetadata) um = p.usageMetadata;
+    const c = p.candidates && p.candidates[0];
+    if (c) { const t = gemText(c); if (t) { got = true; onText(t); } if (c.finishReason) finish = c.finishReason; }
+  };
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const parts = buf.split(/\r?\n\r?\n/); buf = parts.pop();
+      for (const raw of parts) handle(raw);
+    }
+    if (buf.trim()) handle(buf);
+  } finally { gemUsage(um); updateCost(); }
+  if (blocked || /SAFETY|PROHIBITED|BLOCKLIST|SPII/.test(finish || '')) throw new ApiError('refusal', '', 0, 'gemini');
+  if (!got) throw new ApiError('empty', '', 0, 'gemini');
+  return {stop: finish === 'MAX_TOKENS' ? 'max_tokens' : 'end_turn'};
+}
+function blobToB64(blob) {
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+}
+async function geminiTranscribe(blob) {
+  const data = await blobToB64(blob);
+  const r = await gemRequest({maxTokens: 2048, messages: [{role: 'user', parts: [{inlineData: {mimeType: 'audio/wav', data}},
+    {text: "Transcris mot pour mot, en français, ce que dit la personne dans cet enregistrement. Réponds uniquement par la transcription, sans guillemets ni commentaire. Si rien n'est audible, réponds exactement : [VIDE]"}]}]}, undefined, false);
+  const j = await r.json();
+  gemUsage(j.usageMetadata);
+  const text = gemText(j.candidates && j.candidates[0]).trim();
+  return /^\[?VIDE\]?\.?$/i.test(text) ? '' : text;
+}
+async function loadGeminiModels() {
+  const pill = $('#keyStatus');
+  const setPill = (t, c) => { pill.hidden = false; pill.textContent = t; pill.className = 'pill ' + c; };
+  if (!gmKey()) { setPill('Clé manquante', 'err'); return false; }
+  setPill('Vérification…', '');
+  try {
+    const r = await gfetch(`${GEM}/models?pageSize=200&key=${encodeURIComponent(gmKey())}`, {});
+    const j = await r.json();
+    const ver = id => parseFloat((id.match(/gemini-(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    const list = (j.models || []).map(m => m.name.replace(/^models\//, ''))
+      .filter(id => /^gemini-/.test(id) && /flash/.test(id) && !/tts|image|embed|live|audio|native|vision|robotics|computer|veo|imagen|lyria|nano|thinking-exp/i.test(id))
+      .filter((id, i, a) => a.indexOf(id) === i)
+      .sort((a, b) => (/latest/.test(b) - /latest/.test(a)) || (/lite/.test(a) - /lite/.test(b)) || (/preview|exp/.test(a) - /preview|exp/.test(b)) || ver(b) - ver(a) || a.localeCompare(b))
+      .map(id => ({v: id, label: id + (id === 'gemini-flash-latest' ? ' (recommandé)' : /lite/.test(id) ? ' (le plus léger)' : /preview|exp/.test(id) ? ' (préversion)' : '')}));
+    if (!list.length) throw new ApiError('http', 'aucun modèle Flash disponible avec cette clé', 0, 'gemini');
+    settings.gmList = list;
+    if (!list.some(x => x.v === settings.gmModel)) settings.gmModel = (list.find(x => !/lite|preview|exp/.test(x.v)) || list[0]).v;
+    fillSelect('#gmModel', list, settings.gmModel); saveStore();
+    setPill('✓ Clé valide', 'ok'); return true;
+  } catch (e) { setPill('✗ ' + friendly(e).slice(0, 60), 'err'); return false; }
+}
+async function llmStream(args, onText, signal) {
+  if (curAI() === 'gemini') return geminiStream(args, onText, signal);
+  return deepseekStream({model: MODEL, max_tokens: args.maxTokens, system: args.system, messages: args.messages,
+    thinking: {type: 'disabled'}, safety_check: SAFETY,
+    ...(args.readUrl ? {tools: [{type: 'deepseek_read_url', name: 'deepseek_read_url'}]} : {})}, onText, signal);
+}
+
 async function verifyKey() {
   const pill = $('#keyStatus');
   if (!getKey()) { setPill('Clé manquante', 'err'); return false; }
@@ -446,14 +588,11 @@ async function verifyKey() {
 
 async function readOfferFromUrl(url) {
   let txt = '';
-  usage.reads++;
-  await streamMessage({
-    model: MODEL, max_tokens: 3000,
+  if (curAI() === 'deepseek') usage.reads++;
+  await llmStream({
+    maxTokens: 4096, readUrl: true,
     system: "Tu extrais le contenu d'offres d'emploi à partir de pages web. Tu restitues fidèlement le texte, sans rien inventer.",
-    messages: [{role: 'user', content: `Lis cette offre d'emploi : ${url}\n\nRestitue son contenu en texte brut, sans commentaire ni Markdown : intitulé du poste, entreprise, lieu, type de contrat et rythme, missions, profil recherché, compétences et outils, informations sur l'entreprise. Si la page est inaccessible ou ne contient pas d'offre d'emploi, réponds uniquement : ECHEC_LECTURE`}],
-    thinking: {type: 'disabled'},
-    tools: [{type: 'deepseek_read_url', name: 'deepseek_read_url'}],
-    safety_check: SAFETY
+    messages: [{role: 'user', content: `Lis cette offre d'emploi : ${url}\n\nRestitue son contenu en texte brut, sans commentaire ni Markdown : intitulé du poste, entreprise, lieu, type de contrat et rythme, missions, profil recherché, compétences et outils, informations sur l'entreprise. Si la page est inaccessible ou ne contient pas d'offre d'emploi, réponds uniquement : ECHEC_LECTURE`}]
   }, t => { txt += t; });
   txt = txt.trim();
   if (!txt || /ECHEC_LECTURE/.test(txt) || txt.length < 150)
@@ -463,21 +602,23 @@ async function readOfferFromUrl(url) {
 
 /* ---------- Coût ---------- */
 function cost(u = usage) {
+  if (u.ai === 'gemini') return 0; // offre gratuite
   return u.inMiss * PRICE.inMiss / 1e6 + u.inHit * PRICE.inHit / 1e6 + u.out * PRICE.out / 1e6 + u.asrMs / 3.6e6 * PRICE.asrHour + u.reads * PRICE.read;
 }
 function fmtUSD(x) { return x < 0.001 ? '< 0,001 $' : x.toLocaleString('fr-FR', {minimumFractionDigits: 3, maximumFractionDigits: 3}) + ' $'; }
 function updateCost() {
   const chip = $('#costChip');
   if (!S) { chip.hidden = true; return; }
-  chip.hidden = false; chip.textContent = '≈ ' + fmtUSD(cost());
+  chip.hidden = false; chip.textContent = usage.ai === 'gemini' ? 'Gemini · 0 €' : '≈ ' + fmtUSD(cost());
   if (!$('#view-report').hidden) renderCostCard();
 }
 function renderCostCard() {
   const u = usage, tokIn = u.inMiss + u.inHit;
   const sec = u.asrMs / 1000;
   const audio = sec <= 0 ? '' : sec < 60 ? `, ${Math.round(sec)} s d'audio transcrit` : `, ${(sec / 60).toLocaleString('fr-FR', {maximumFractionDigits: 1})} min d'audio transcrit`;
-  $('#costCard').innerHTML = `<h3>Coût de la séance</h3><div class="big">≈ ${fmtUSD(cost())}</div>
-    <p class="hint">DeepSeek : ${tokIn.toLocaleString('fr-FR')} tokens envoyés (dont ${u.inHit.toLocaleString('fr-FR')} en cache), ${u.out.toLocaleString('fr-FR')} générés${audio}. Calculé au tarif heures pleines, sans promotion : c'est un maximum.</p>
+  const gem = u.ai === 'gemini';
+  $('#costCard').innerHTML = `<h3>Coût de la séance</h3><div class="big">${gem ? '0 €' : '≈ ' + fmtUSD(cost())}</div>
+    <p class="hint">${gem ? 'Gemini (offre gratuite)' : 'DeepSeek'} : ${tokIn.toLocaleString('fr-FR')} tokens envoyés (dont ${u.inHit.toLocaleString('fr-FR')} en cache), ${u.out.toLocaleString('fr-FR')} générés${audio}. ${gem ? 'Gratuit dans la limite des quotas de Google.' : 'Calculé au tarif heures pleines, sans promotion : c\'est un maximum.'}</p>
     <p class="hint">${ttsCostText(u)}</p>`;
 }
 
@@ -1001,11 +1142,15 @@ async function transcribe(blob, auto) {
   rec.transcribing = true; updateComposer();
   hint('<span class="spinner sm"></span> Transcription en cours…');
   try {
-    const fd = new FormData(); fd.append('file', blob, 'reponse.wav');
-    const r = await api('/v1/tools/asr', {method: 'POST', headers: {Authorization: 'Bearer ' + getKey()}, body: fd});
-    const j = await r.json();
-    usage.asrMs += j.duration_ms || (blob.size - 44) / 32;
-    const text = (j.text || '').trim();
+    let text;
+    if (curAI() === 'gemini') { text = await geminiTranscribe(blob); usage.asrMs += (blob.size - 44) / 32; }
+    else {
+      const fd = new FormData(); fd.append('file', blob, 'reponse.wav');
+      const r = await api('/v1/tools/asr', {method: 'POST', headers: {Authorization: 'Bearer ' + getKey()}, body: fd});
+      const j = await r.json();
+      usage.asrMs += j.duration_ms || (blob.size - 44) / 32;
+      text = (j.text || '').trim();
+    }
     if (!text) { hint("Je n'ai rien entendu. Rapproche-toi du micro et réessaie."); return; }
     const ta = $('#answer'); ta.value = (ta.value.trim() ? ta.value.trim() + ' ' : '') + text; autosize();
     if (auto) hint('Limite de 2 minutes atteinte : touche le micro pour continuer ta réponse, puis envoie-la.');
@@ -1021,7 +1166,7 @@ async function transcribe(blob, auto) {
 async function startInterview() {
   const err = $('#setupError'); err.hidden = true;
   const fail = m => { err.textContent = m; err.hidden = false; err.scrollIntoView({behavior: 'smooth', block: 'center'}); };
-  if (!getKey()) return fail('Ajoute ta clé API DeepSeek (étape 1).');
+  if (settings.ai === 'gemini' ? !gmKey() : !getKey()) return fail(`Ajoute ta clé API ${AI_NAME[settings.ai]} (étape 1).`);
   let cv = $('#cv').value.trim(), offre = $('#offre').value.trim();
   if (cv.length < 80) return fail('Le CV est vide ou trop court (étape 2).');
   if (!offre) return fail("Ajoute l'offre visée, en texte ou en lien (étape 3).");
@@ -1043,7 +1188,7 @@ async function startInterview() {
 
 function begin(cv, offre) {
   S = {
-    cv, offre, prenom: $('#prenom').value.trim(), contrat: settings.contrat, niveau: settings.niveau, mode: settings.mode,
+    ai: settings.ai, cv, offre, prenom: $('#prenom').value.trim(), contrat: settings.contrat, niveau: settings.niveau, mode: settings.mode,
     N: +settings.nbq, exigence: settings.exigence, feedback: settings.feedback,
     messages: [{role: 'user', content: OPENING}], log: [], n: 0, cat: '', finished: false, early: false,
     busy: false, needRetry: false, ctrl: null, startedAt: Date.now(), endedAt: 0, ttsNoted: {},
@@ -1092,10 +1237,7 @@ async function recruiterTurn() {
   const ctrl = S.ctrl = new AbortController();
   let raw = '';
   try {
-    await streamMessage({
-      model: MODEL, max_tokens: 1200, system: S.system, messages: S.messages,
-      thinking: {type: 'disabled'}, safety_check: SAFETY
-    }, t => { raw += t; turn.render(parseRecruiter(raw), true); }, ctrl.signal);
+    await llmStream({maxTokens: S.ai === 'gemini' ? 4096 : 1200, system: S.system, messages: S.messages}, t => { raw += t; turn.render(parseRecruiter(raw), true); }, ctrl.signal);
     const p = parseRecruiter(raw);
     if (!p.body && !p.feedback) throw new ApiError('empty');
     S.messages.push({role: 'assistant', content: raw});
@@ -1194,11 +1336,7 @@ ${S.offre}
 ## Transcription
 ${buildTranscript(true)}`;
   const sess = S;
-  R.promise = streamMessage({
-    model: MODEL, max_tokens: 8000, system: buildCoachPrompt(S),
-    messages: [{role: 'user', content: ctx}],
-    thinking: {type: 'disabled'}, safety_check: SAFETY
-  }, t => { R.text += t; if (S === sess) scheduleReportRender(); })
+  R.promise = llmStream({maxTokens: S.ai === 'gemini' ? 16384 : 8000, system: buildCoachPrompt(S), messages: [{role: 'user', content: ctx}]}, t => { R.text += t; if (S === sess) scheduleReportRender(); })
     .then(res => { R.done = true; R.stop = res.stop; })
     .catch(e => { R.error = e; R.promise = null; })
     .finally(() => { if (S === sess) renderReport(); });
@@ -1314,6 +1452,14 @@ function applySettingsToUI() {
   $('#rate').value = settings.rate; $('#rateVal').textContent = '×' + (+settings.rate).toFixed(2).replace('.', ',');
   $('#autoSend').checked = !!settings.autoSend; $('#rememberKey').checked = !!settings.remember;
   $('#voiceBox').hidden = settings.mode !== 'oral';
+  const gem = settings.ai === 'gemini';
+  $('#aiGemini').hidden = !gem; $('#aiDeepseek').hidden = gem;
+  $('#brandSub').textContent = 'Recruteur IA · ' + AI_NAME[settings.ai];
+  $('#privacy').innerHTML = gem
+    ? "<strong>Confidentialité.</strong> Le CV, l'offre, les réponses et l'audio sont traités par l'API Gemini de Google. L'offre gratuite est faite pour tes tests : pour proposer l'outil à des étudiants en Europe, Google demande l'offre payante. Retire du CV ce qui est sensible (nom de famille, adresse)."
+    : "<strong>Confidentialité.</strong> Le CV, l'offre, les réponses et l'audio sont traités par l'API DeepSeek (serveurs en Chine). Retire du CV ce qui est sensible (nom de famille, adresse) avant de commencer.";
+  $('#estimate').textContent = (gem ? "Coût : 0 € avec l'offre gratuite de Gemini, dans la limite de ses quotas." : 'Coût DeepSeek estimé : moins de 0,10 $ par séance.')
+    + ' Les voix Google et ElevenLabs sont facturées à part par ces services.';
   $('#ttsBasic').hidden = settings.tts !== 'basic'; $('#ttsGoogle').hidden = settings.tts !== 'google'; $('#ttsEleven').hidden = settings.tts !== 'eleven';
   $('#micWarn').hidden = !(settings.mode === 'oral' && !micOK);
   $('#autoSend').closest('.check').hidden = !micOK;
@@ -1322,6 +1468,8 @@ function init() {
   const st = loadStore();
   settings = {...DEFAULTS, ...(st.settings || {})};
   if (st.key) $('#apiKey').value = st.key;
+  if (st.gmKey) $('#gmKey').value = st.gmKey;
+  fillSelect('#gmModel', settings.gmList || GM_DEFAULT, settings.gmModel);
   if (st.gKey) $('#googleKey').value = st.gKey;
   if (st.eKey) $('#elevenKey').value = st.eKey;
   fillSelect('#gVoice', settings.gList || G_DEFAULT, settings.gVoice);
@@ -1331,12 +1479,15 @@ function init() {
   applySettingsToUI();
   document.querySelectorAll('.seg').forEach(seg => seg.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    settings[seg.dataset.name] = b.dataset.v; applySettingsToUI(); saveStore();
+    settings[seg.dataset.name] = b.dataset.v; if (seg.dataset.name === 'ai') $('#keyStatus').hidden = true; applySettingsToUI(); saveStore();
   }));
   $('#rate').addEventListener('input', e => { settings.rate = +e.target.value; applySettingsToUI(); saveStore(); });
   $('#autoSend').addEventListener('change', e => { settings.autoSend = e.target.checked; saveStore(); });
   $('#rememberKey').addEventListener('change', e => { settings.remember = e.target.checked; saveStore(); });
   $('#apiKey').addEventListener('change', () => { $('#keyStatus').hidden = true; saveStore(); });
+  $('#gmKey').addEventListener('change', () => { $('#keyStatus').hidden = true; saveStore(); if (gmKey()) loadGeminiModels(); });
+  $('#gmModel').addEventListener('change', e => { settings.gmModel = e.target.value; saveStore(); });
+  $('#btnGmVerify').addEventListener('click', loadGeminiModels);
   $('#voice').addEventListener('change', e => { settings.voice = e.target.value; saveStore(); });
   $('#btnTestVoice').addEventListener('click', () => testVoice('basic'));
   $('#btnGTest').addEventListener('click', () => testVoice('google'));
